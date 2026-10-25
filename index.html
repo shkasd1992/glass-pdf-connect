@@ -1,0 +1,73 @@
+<!doctype html>
+<!-- Glass PDF phone sign-in page. Hosted on GitHub Pages; the TV's QR code points here.
+     Flow: QR (#tv, pair, cc) -> Google sign-in -> back here with ?code -> user taps "Send to TV". -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Glass PDF · Connect TV</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box;
+    font: 17px/1.5 system-ui, sans-serif; color: #e9eefc; background: radial-gradient(circle at 20% 0%, #26304d, #0b0d14 70%); }
+  .card { max-width: 420px; width: 100%; text-align: center; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 20px; padding: 28px 22px; }
+  h1 { font-size: 22px; margin: 8px 0 6px; }
+  p { color: #b4bfd8; margin: 8px 0; }
+  .btn { display: block; margin: 22px auto 6px; padding: 16px 20px; border-radius: 14px; font-weight: 700; font-size: 19px; text-decoration: none;
+    color: #071022; background: linear-gradient(135deg, #7fd4ff, #6a5cff); }
+  .icon { font-size: 44px; }
+  .err { color: #ffb3b3; }
+  small { color: #7f8aa6; }
+</style>
+</head>
+<body>
+<div class="card" id="card"><div class="icon">📚</div><h1>Glass PDF</h1><p>Loading…</p></div>
+<script>
+// The OAuth Web client id from Google Cloud Console (public; the secret lives only on the TV).
+const CLIENT_ID = '899706486037-bk8jbbat7dmb3ikubod9gci99jauk7i3.apps.googleusercontent.com';
+const SCOPE = 'https://www.googleapis.com/auth/drive.readonly openid email';
+const REDIRECT = location.origin + location.pathname;
+
+const card = document.getElementById('card');
+function show(html) { card.innerHTML = '<div class="icon">📚</div><h1>Glass PDF</h1>' + html; }
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const b64u = (s) => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64u = (s) => decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/'))));
+// TV address must be a private IPv4 with a port, so this page can't be used to bounce codes elsewhere.
+const validTv = (tv) => /^(10|192\.168|172\.(1[6-9]|2\d|3[01]))(\.\d{1,3}){1,3}:\d{2,5}$/.test(tv || '');
+
+const q = new URLSearchParams(location.search);
+const frag = new URLSearchParams(location.hash.slice(1));
+
+if (q.get('error')) {
+  show(`<p class="err">Sign-in was cancelled (${esc(q.get('error'))}).</p><p>Scan the QR code on the TV to try again.</p>`);
+} else if (q.get('code')) {
+  let st = null;
+  try { st = JSON.parse(unb64u(q.get('state') || '')); } catch (e) {}
+  history.replaceState(null, '', REDIRECT); // keep the code out of history
+  if (!st || !validTv(st.tv) || !/^[\w-]{10,64}$/.test(st.pair || '')) {
+    show('<p class="err">This link is incomplete.</p><p>Scan the QR code on the TV again.</p>');
+  } else {
+    const url = `http://${st.tv}/connect?code=${encodeURIComponent(q.get('code'))}&pair=${encodeURIComponent(st.pair)}`;
+    show(`<p>Signed in. Make sure this phone is on the same Wi-Fi as the TV, then:</p>
+      <a class="btn" href="${esc(url)}">Send to TV</a>
+      <small>Sends a one-time code to ${esc(st.tv)} on your home network.</small>`);
+  }
+} else if (validTv(frag.get('tv')) && frag.get('pair') && frag.get('cc')) {
+  const auth = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  auth.search = new URLSearchParams({
+    client_id: CLIENT_ID, redirect_uri: REDIRECT, response_type: 'code', scope: SCOPE,
+    access_type: 'offline', prompt: 'select_account consent', include_granted_scopes: 'true',
+    code_challenge: frag.get('cc'), code_challenge_method: 'S256',
+    state: b64u(JSON.stringify({ tv: frag.get('tv'), pair: frag.get('pair') })),
+  });
+  show('<p>Opening Google sign-in…</p>');
+  location.replace(auth.toString());
+} else {
+  show('<p>Open <b>Glass PDF → Connect Drive</b> on your TV and scan the QR code with this phone.</p>');
+}
+</script>
+</body>
+</html>
